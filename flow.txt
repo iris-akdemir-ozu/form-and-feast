@@ -1,0 +1,9 @@
+Frontend (React)
+      ↓ sends video + cuisine choice
+   main.py (FastAPI)
+      ↓              ↓              ↓
+s3_service      nova_form       nova_meal
+(store video)  (analyze it)   (generate meal)
+                                    ↓
+                             dynamo_service
+                             (save the log)
