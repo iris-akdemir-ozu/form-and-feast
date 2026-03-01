@@ -2,24 +2,33 @@ import boto3, json
 
 bedrock = boto3.client("bedrock-runtime", region_name="eu-north-1")
 
-def analyze_workout_video(s3_bucket: str, s3_key: str) -> dict:
-    prompt = """You are an expert strength training biomechanics coach and physical therapist. Analyze this workout video in detail and return ONLY a JSON object with exactly these fields:
-    {
-      "exercise_name": "name of the exercise being performed",
+def analyze_workout_video(s3_bucket: str, s3_key: str, exercise_name: str = "") -> dict:
+
+    exercise_context = (
+        f"The user is performing: {exercise_name}. Analyze this specific exercise."
+        if exercise_name
+        else "Identify the exercise being performed."
+    )
+
+    prompt = f"""You are an expert strength training biomechanics coach and physical therapist.
+    {exercise_context}
+    Analyze this workout video and return ONLY a JSON object with exactly these fields:
+    {{
+      "exercise_name": "{exercise_name if exercise_name else 'name of the exercise being performed'}",
       "form_feedback": ["correction 1", "correction 2", "correction 3"],
       "intensity_score": 8,
       "recovery_protein_g": 30,
       "recovery_calories": 500,
       "injury_flags": [
-        {
+        {{
           "issue": "knee valgus detected",
           "severity": "moderate",
           "risk": "increased ACL and meniscus stress",
           "fix": "Focus on pushing knees out in line with toes; try 10% weight reduction next set"
-        }
+        }}
       ],
-      "next_set_objective": "Rest 90 seconds. On your next set, focus on driving your knees outward and keeping chest up. Consider reducing weight by 10%.",
-      "muscle_activation": {
+      "next_set_objective": "Rest 90 seconds. On your next set, focus on driving your knees outward and keeping chest up.",
+      "muscle_activation": {{
         "quadriceps": 85,
         "hamstrings": 40,
         "glutes": 70,
@@ -32,8 +41,8 @@ def analyze_workout_video(s3_bucket: str, s3_key: str) -> dict:
         "back_lower": 60,
         "core": 50,
         "hip_flexors": 45
-      },
-      "recovery_timeline": {
+      }},
+      "recovery_timeline": {{
         "quadriceps": 72,
         "hamstrings": 48,
         "glutes": 60,
@@ -46,14 +55,16 @@ def analyze_workout_video(s3_bucket: str, s3_key: str) -> dict:
         "back_lower": 48,
         "core": 24,
         "hip_flexors": 36
-      },
+      }},
       "primary_muscles": ["muscle1", "muscle2"],
       "secondary_muscles": ["muscle3", "muscle4"],
       "estimated_volume": "high/medium/low",
       "fatigue_level": "high/medium/low"
-    }
-    
-    For injury_flags: Look specifically for knee valgus, lumbar rounding, butt wink, forward lean, heel lift, shoulder impingement, elbow flare, hyperextension, cervical strain. If no issues detected, return empty array [].
+    }}
+
+    For injury_flags: Look specifically for knee valgus, lumbar rounding, butt wink, forward lean,
+    heel lift, shoulder impingement, elbow flare, hyperextension, cervical strain.
+    If no issues detected, return empty array [].
     severity must be one of: "low", "moderate", "high"
     next_set_objective must be a specific actionable coaching cue for their very next set.
     muscle_activation values are 0-100. recovery_timeline values are hours.
@@ -92,4 +103,11 @@ def analyze_workout_video(s3_bucket: str, s3_key: str) -> dict:
     end = text.rfind("}") + 1
     text = text[start:end]
     print("FORM RAW RESPONSE:", text)
-    return json.loads(text)
+
+    parsed = json.loads(text)
+
+    # Always enforce the user-provided exercise name — never let Nova override it
+    if exercise_name:
+        parsed["exercise_name"] = exercise_name
+
+    return parsed

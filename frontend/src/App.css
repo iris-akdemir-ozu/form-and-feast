@@ -19,11 +19,10 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
-  max-width: 560px;
   width: 100%;
-  text-align: center;
-  margin: 0 auto;
+  max-width: 600px;
+  gap: 16px;
+  margin: 0 auto; 
 }
 
 .hero h1 {
