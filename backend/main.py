@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import s3_service, nova_form, nova_meal, dynamo_service
 import uuid
 import recovery_service
+import injury_risk
 from collections import defaultdict
 
 app = FastAPI()
@@ -61,6 +62,25 @@ async def analyze(
     # Step 2: Analyze form with Nova Pro — pass exercise name so Nova focuses correctly
     form_result = nova_form.analyze_workout_video(BUCKET_NAME, file_name, exercise_name)
     exercise_name = form_result.get("exercise_name", "Unknown Exercise")
+
+    # Pull past injury flags for this user to detect recurring patterns
+    recent_sessions   = dynamo_service.get_recent_sessions(user_id, limit=5)
+    past_injury_flags = [
+        flag["issue"]
+        for session in recent_sessions
+        for flag in session.get("injury_flags", [])
+    ]
+
+    # Score injury flags with XAI probability model
+    scored_flags = injury_risk.score_injury_flags(
+        current_flags=form_result.get("injury_flags", []),
+        set_number=set_number,
+        intensity_score=form_result.get("intensity_score", 5),
+        past_session_flags=past_injury_flags
+    )
+    form_result["injury_flags"] = scored_flags   # replace raw flags with scored ones
+
+
 
     # Step 3: Save this set to DynamoDB
     dynamo_service.save_set(user_id, session_id, exercise_name, set_number, form_result)
@@ -168,6 +188,15 @@ async def finish_session(request: Request):
         preferences=pref_with_history
     )
 
+    all_scored_flags = [
+        flag
+        for s in all_sets
+        for flag in s.get("injury_flags", [])
+        if isinstance(flag, dict) and "risk_score" in flag
+    ]
+    risk_summary = injury_risk.get_session_risk_summary(all_scored_flags)
+
+
     summary = {
         "exercises_done":  exercises_done,
         "total_sets":      total_sets,
@@ -176,7 +205,10 @@ async def finish_session(request: Request):
         "total_volume_kg": 0,
         "muscles_trained": muscles_trained,
         "injury_flags":    all_injury_flags,
+        "risk_summary":      risk_summary, 
     }
+
+    
 
     # Save session summary for cross-session RAG
     dynamo_service.save_session_summary(user_id, session_id, summary, meal_result)
