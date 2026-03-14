@@ -39,7 +39,11 @@ async def get_recovery_status(user_id: str):
         "advisory":        advisory
     }
 
-
+@app.get("/training/recommendation/{user_id}")
+async def get_training_recommendation(user_id: str):
+    recommendation = recovery_service.generate_training_recommendation(user_id)
+    return recommendation
+ 
 
 # ─── /analyze ─────────────────────────────────────────────────────────────────
 # Now accepts session_id + set_number so each upload is tracked in context.

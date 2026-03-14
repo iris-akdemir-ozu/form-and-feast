@@ -316,6 +316,76 @@ function CoachChat({ chatHistory, chatInput, setChatInput, chatLoading, handleCh
   )
 }
 
+function TrainingRecommendation({ rec }) {
+  if (!rec) return (
+    <div style={{ background: "#111", border: "1px solid #222", borderRadius: "16px", padding: "20px" }}>
+      <p style={{ fontSize: "0.75rem", color: "#888", fontWeight: "700", letterSpacing: "1px", marginBottom: "8px" }}>🤖 TODAY'S RECOMMENDATION</p>
+      <p style={{ fontSize: "0.82rem", color: "#555" }}>Loading AI recommendation...</p>
+    </div>
+  )
+ 
+  const capColor = rec.intensity_cap >= 8 ? "#4caf50"
+    : rec.intensity_cap >= 6 ? "#ffcc00" : "#ff6b35"
+ 
+  return (
+    <div style={{ background: "#111", border: "1px solid #222", borderRadius: "16px", padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+ 
+      {/* Header + intensity cap */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <p style={{ fontSize: "0.75rem", color: "#888", fontWeight: "700", letterSpacing: "1px" }}>🤖 TODAY'S RECOMMENDATION</p>
+        <div style={{ textAlign: "center", flexShrink: 0, marginLeft: "12px" }}>
+          <p style={{ fontSize: "1.6rem", fontWeight: "900", color: capColor, lineHeight: 1 }}>{rec.intensity_cap}</p>
+          <p style={{ fontSize: "0.65rem", color: "#555", letterSpacing: "0.5px" }}>MAX RPE</p>
+        </div>
+      </div>
+ 
+      {/* Main recommendation */}
+      <p style={{ fontSize: "0.85rem", color: "#ccc", lineHeight: "1.6" }}>{rec.recommendation}</p>
+ 
+      {/* Reasoning */}
+      {rec.reasoning && (
+        <div style={{ background: "#0d0d0d", borderRadius: "8px", padding: "8px 12px", borderLeft: "3px solid #ff6b35" }}>
+          <p style={{ fontSize: "0.75rem", color: "#888", lineHeight: "1.5" }}>🧠 {rec.reasoning}</p>
+        </div>
+      )}
+ 
+      {/* Muscle status chips */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {rec.avoid?.length > 0 && (
+          <div>
+            <p style={{ fontSize: "0.68rem", color: "#ff4444", fontWeight: "700", letterSpacing: "1px", marginBottom: "5px" }}>⛔ AVOID TODAY</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+              {rec.avoid.map((m, i) => (
+                <span key={i} style={{ background: "#2a0808", border: "1px solid #ff2200", borderRadius: "999px", padding: "3px 10px", fontSize: "0.75rem", color: "#ff6666" }}>{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {rec.reduce?.length > 0 && (
+          <div>
+            <p style={{ fontSize: "0.68rem", color: "#ffcc00", fontWeight: "700", letterSpacing: "1px", marginBottom: "5px" }}>⚠️ REDUCE VOLUME</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+              {rec.reduce.map((m, i) => (
+                <span key={i} style={{ background: "#1a1a08", border: "1px solid #ffcc00", borderRadius: "999px", padding: "3px 10px", fontSize: "0.75rem", color: "#ffcc00" }}>{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {rec.ready?.length > 0 && (
+          <div>
+            <p style={{ fontSize: "0.68rem", color: "#4caf50", fontWeight: "700", letterSpacing: "1px", marginBottom: "5px" }}>✅ READY TO TRAIN</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+              {rec.ready.map((m, i) => (
+                <span key={i} style={{ background: "#0a1a0a", border: "1px solid #2a5a2a", borderRadius: "999px", padding: "3px 10px", fontSize: "0.75rem", color: "#4caf50" }}>{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [step, setStep] = useState("upload")
@@ -336,7 +406,7 @@ export default function App() {
   const [exerciseSearch, setExerciseSearch] = useState("")
   const [sessionLog, setSessionLog] = useState([])
   const [recoveryStatus, setRecoveryStatus] = useState(null)
-
+  const [trainingRec, setTrainingRec] = useState(null)
   const currentExercise = sessionLog.find(e => e.exercise_name === exerciseName)
   const currentSetNumber = currentExercise ? currentExercise.sets.length + 1 : 1
   const filteredExercises = EXERCISE_LIST.filter(e => e.toLowerCase().includes(exerciseSearch.toLowerCase()))
@@ -344,6 +414,10 @@ export default function App() {
   useEffect(() => {
     axios.get("http://localhost:8000/recovery/status/user_001")
       .then(res => setRecoveryStatus(res.data.recovery_status))
+      .catch(() => {})
+   
+    axios.get("http://localhost:8000/training/recommendation/user_001")
+      .then(res => setTrainingRec(res.data))
       .catch(() => {})
   }, [])
 
@@ -447,11 +521,14 @@ export default function App() {
                     </div>
                   )
                 })}
+               
               </div>
+              
             ) : (
               <p style={{ fontSize: "0.85rem", color: "#555" }}>No training history yet.</p>
             )}
           </div>
+          <TrainingRecommendation rec={trainingRec} />
 
           {sessionLog.length > 0 && (
             <div style={{ background: "#111", border: "1px solid #222", borderRadius: "16px", padding: "20px" }}>

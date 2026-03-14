@@ -1,9 +1,11 @@
 import boto3
 from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
-
+import json
+import dynamo_service
 dynamo = boto3.resource("dynamodb")
 sessions_table = dynamo.Table("FormAndFeastSessions")
+bedrock = boto3.client("bedrock-runtime", region_name="eu-north-1")
 
 # How many hours each muscle needs to fully recover at 100% intensity
 # Based on sports science literature
@@ -168,3 +170,121 @@ def build_recovery_advisory(recovery_status: dict) -> str:
         lines.append("  All muscle groups are fully recovered and ready to train.")
 
     return "\n".join(lines)
+
+
+def generate_training_recommendation(user_id: str) -> dict:
+    """
+    Reads the last 3 sessions + current recovery status and calls Nova Lite
+    to generate an auto-regulated training recommendation for today.
+ 
+    Returns:
+        {
+            "recommendation": str,       # main advice paragraph
+            "avoid":          list[str],  # muscle groups to avoid today
+            "reduce":         list[str],  # muscle groups to reduce volume on
+            "ready":          list[str],  # fully recovered, good to train hard
+            "intensity_cap":  int,        # suggested max intensity 1-10
+        }
+    """
+    # Get recovery status
+    recovery_status  = calculate_recovery_status(user_id)
+    recovery_advisory = build_recovery_advisory(recovery_status)
+ 
+    # Get last 3 sessions
+    recent_sessions = dynamo_service.get_recent_sessions(user_id, limit=3)
+ 
+    if not recent_sessions:
+        return {
+            "recommendation": "No training history found. Start your first session — all muscle groups are fully recovered and ready to go!",
+            "avoid":         [],
+            "reduce":        [],
+            "ready":         list(FULL_RECOVERY_HOURS.keys()),
+            "intensity_cap": 10,
+        }
+ 
+    # Build session history summary for the prompt
+    session_summaries = []
+    for i, s in enumerate(recent_sessions):
+        exercises = s.get("exercises_done", [])
+        intensity = s.get("avg_intensity", "?")
+        fatigue   = s.get("peak_fatigue", "?")
+        flags     = [f.get("issue", "") if isinstance(f, dict) else str(f) for f in s.get("injury_flags", [])]
+        muscles   = s.get("muscles_trained", [])
+        ts        = s.get("timestamp", "")[:10]
+        session_summaries.append(
+            f"Session {i+1} ({ts}): exercises={exercises}, avg_intensity={intensity}/10, "
+            f"peak_fatigue={fatigue}, muscles_trained={muscles}, injury_flags={flags}"
+        )
+ 
+    history_text = "\n".join(session_summaries)
+ 
+    # Fatigued / partial muscles for the prompt
+    fatigued = [d["display_name"] for m, d in recovery_status.items() if d["status"] == "fatigued" and d["last_trained"]]
+    partial  = [d["display_name"] for m, d in recovery_status.items() if d["status"] == "partial"  and d["last_trained"]]
+    ready    = [d["display_name"] for m, d in recovery_status.items() if d["status"] == "ready"    and d["last_trained"]]
+ 
+    system_prompt = """You are an expert strength and conditioning coach with deep knowledge of periodization, 
+    auto-regulation, and injury prevention. You analyze an athlete's recent training history and recovery status 
+    to give them a precise, science-based training recommendation for today.
+    
+    Always return valid JSON with exactly these fields:
+    {
+      "recommendation": string (2-3 sentences, direct coaching advice for today's session),
+      "avoid": array of strings (muscle groups to avoid entirely today),
+      "reduce": array of strings (muscle groups to train at reduced volume/intensity),
+      "ready": array of strings (muscle groups fully recovered and ready for full intensity),
+      "intensity_cap": integer 1-10 (maximum recommended training intensity for today),
+      "reasoning": string (one sentence explaining the science behind the intensity cap)
+    }
+    
+    Return ONLY the JSON, no extra text."""
+ 
+    user_prompt = f"""
+    Athlete's recent training history (newest first):
+    {history_text}
+    
+    Current muscle recovery status:
+    {recovery_advisory}
+    
+    Fatigued muscles (not recommended to train): {fatigued}
+    Partially recovered muscles (light work only): {partial}
+    Fully recovered muscles (ready for full intensity): {ready}
+    
+    Based on this data, generate an auto-regulated training recommendation for today.
+    Focus on preventing overtraining while maximizing performance on recovered muscle groups.
+    """
+ 
+    try:
+        response = bedrock.invoke_model(
+            modelId="eu.amazon.nova-lite-v1:0",
+            body=json.dumps({
+                "system":   [{"text": system_prompt}],
+                "messages": [{"role": "user", "content": [{"text": user_prompt}]}]
+            })
+        )
+        result = json.loads(response["body"].read())
+        text   = result["output"]["message"]["content"][0]["text"].strip()
+ 
+        # Clean JSON fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+        start = text.find("{")
+        end   = text.rfind("}") + 1
+        text  = text[start:end]
+ 
+        parsed = json.loads(text)
+        return parsed
+ 
+    except Exception as e:
+        print(f"Training recommendation error: {e}")
+        return {
+            "recommendation": "Unable to generate recommendation. Check your recent sessions for patterns.",
+            "avoid":         fatigued,
+            "reduce":        partial,
+            "ready":         ready,
+            "intensity_cap": 7,
+            "reasoning":     "Conservative default due to recent training load."
+        }
