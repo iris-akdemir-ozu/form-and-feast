@@ -198,6 +198,9 @@ async def finish_session(request: Request):
         for flag in s.get("injury_flags", [])
         if isinstance(flag, dict) and "risk_score" in flag
     ]
+
+    print("ALL SETS:", all_sets)
+    print("ALL SCORED FLAGS:", all_scored_flags)
     risk_summary = injury_risk.get_session_risk_summary(all_scored_flags)
 
 
@@ -209,7 +212,7 @@ async def finish_session(request: Request):
         "total_volume_kg": 0,
         "muscles_trained": muscles_trained,
         "injury_flags":    all_injury_flags,
-        "risk_summary":      risk_summary, 
+        "risk_summary":      risk_summary,
     }
 
     

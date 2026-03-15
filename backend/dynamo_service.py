@@ -1,6 +1,7 @@
 import boto3
 from datetime import datetime
 from boto3.dynamodb.conditions import Key
+from decimal import Decimal
 
 dynamo = boto3.resource("dynamodb")
 
@@ -12,6 +13,15 @@ sessions_table = dynamo.Table("FormAndFeastSessions")
 
 
 # ─── SETS ─────────────────────────────────────────────────────────────────────
+def sanitize_for_dynamo(obj):
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {k: sanitize_for_dynamo(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_dynamo(i) for i in obj]
+    return obj
+
 
 def save_set(user_id: str, session_id: str, exercise_name: str,
              set_number: int, form_result: dict):
@@ -20,6 +30,7 @@ def save_set(user_id: str, session_id: str, exercise_name: str,
     Primary key:  user_id  (partition)
     Sort key:     session_id#exercise_name#set_number  (range)
     """
+    clean = sanitize_for_dynamo(form_result)
     sets_table.put_item(Item={
         "user_id":        user_id,
         "set_key":        f"{session_id}#{exercise_name}#{set_number}",
@@ -27,12 +38,12 @@ def save_set(user_id: str, session_id: str, exercise_name: str,
         "exercise_name":  exercise_name,
         "set_number":     set_number,
         "timestamp":      datetime.utcnow().isoformat(),
-        "intensity_score":    form_result.get("intensity_score", 0),
-        "fatigue_level":      form_result.get("fatigue_level", "low"),
-        "form_feedback":      form_result.get("form_feedback", []),
-        "injury_flags":       form_result.get("injury_flags", []),
-        "muscle_activation":  form_result.get("muscle_activation", {}),
-        "recovery_timeline":  form_result.get("recovery_timeline", {}),
+       "intensity_score":    clean.get("intensity_score", 0),
+        "fatigue_level":      clean.get("fatigue_level", "low"),
+        "form_feedback":      clean.get("form_feedback", []),
+        "injury_flags":       clean.get("injury_flags", []),
+        "muscle_activation":  clean.get("muscle_activation", {}),
+        "recovery_timeline":  clean.get("recovery_timeline", {}),
     })
 
 
@@ -102,19 +113,21 @@ def save_session_summary(user_id: str, session_id: str,
     Save end-of-session summary to FormAndFeastSessions.
     Also used for cross-session RAG lookups.
     """
+    clean_summary = sanitize_for_dynamo(summary)
+    clean_meal    = sanitize_for_dynamo(meal)
     sessions_table.put_item(Item={
         "user_id":           user_id,
         "session_id":        session_id,
         "timestamp":         datetime.utcnow().isoformat(),
-        "exercises_done":    summary.get("exercises_done", []),
-        "total_sets":        summary.get("total_sets", 0),
-        "avg_intensity":     summary.get("avg_intensity", 0),
-        "peak_fatigue":      summary.get("peak_fatigue", "low"),
-        "total_volume_kg":   summary.get("total_volume_kg", 0),
-        "muscles_trained":   summary.get("muscles_trained", []),
-        "injury_flags":      summary.get("injury_flags", []),
-        "meal_name":         meal.get("recipe_name", ""),
-        "meal_macros":       meal.get("macros", {}),
+        "exercises_done":    clean_summary.get("exercises_done", []),
+        "total_sets":        clean_summary.get("total_sets", 0),
+        "avg_intensity":     clean_summary.get("avg_intensity", 0),
+        "peak_fatigue":      clean_summary.get("peak_fatigue", "low"),
+        "total_volume_kg":   clean_summary.get("total_volume_kg", 0),
+        "muscles_trained":   clean_summary.get("muscles_trained", []),
+        "injury_flags":      clean_summary.get("injury_flags", []),
+        "meal_name":         clean_meal.get("recipe_name", ""),
+        "meal_macros":       clean_meal.get("macros", {}),
     })
 
 
@@ -157,7 +170,7 @@ def build_cross_session_context(user_id: str) -> str:
         meal  = s.get("meal_name", "unknown")
         flags = s.get("injury_flags", [])
         flag_str = (
-            f" ⚠️ Injury flags: {', '.join([f['issue'] for f in flags])}"
+            f" ⚠️ Injury flags: {', '.join([str(f.get('issue', '')) for f in flags if isinstance(f, dict)])}"
             if flags else ""
         )
         lines.append(

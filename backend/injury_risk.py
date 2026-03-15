@@ -193,12 +193,10 @@ def get_session_risk_summary(all_scored_flags: list) -> dict:
             "recommendation":     "No injury flags detected this session. Excellent movement quality."
         }
 
-    scores    = [f["risk_score"] for f in all_scored_flags]
-    top_flag  = max(all_scored_flags, key=lambda x: x["risk_score"])
+    scores   = [int(f["risk_score"]) for f in all_scored_flags]  # ← int() here
+    top_flag = max(all_scored_flags, key=lambda x: int(x["risk_score"]))  # ← int() here
     avg_score = round(sum(scores) / len(scores))
-
-    # Use the peak score weighted against average — peak matters more for safety
-    overall = min(99, round(avg_score * 0.4 + top_flag["risk_score"] * 0.6))
+    overall  = min(99, round(avg_score * 0.4 + int(top_flag["risk_score"]) * 0.6))  # ← int() here
 
     if overall >= 75:
         level = "critical"

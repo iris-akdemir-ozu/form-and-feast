@@ -733,7 +733,7 @@ export default function App() {
           </div>
         </div>
 
-        <MealCard meal={results.meal} />
+        
 
         <CoachChat chatHistory={chatHistory} chatInput={chatInput} setChatInput={setChatInput}
           chatLoading={chatLoading} handleChat={handleChat}
@@ -767,7 +767,7 @@ export default function App() {
           <FormTrendLine sessionLog={sessionLog} />
         </div>
 
-        <SessionRiskSummary riskSummary={sessionSummary.risk_summary} />
+        <SessionRiskSummary riskSummary={sessionSummary.session_summary?.risk_summary} />
 
         <div className="card full-width">
           <div className="card-header"><span>🔥</span><h2>Muscles Trained This Session</h2></div>
